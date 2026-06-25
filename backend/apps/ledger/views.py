@@ -577,3 +577,46 @@ def recurring_process(request):
         return json_error("Method not allowed", 405)
     created = process_due_recurring(request.fv_user)
     return JsonResponse({"success": True, "processed": len(created)})
+
+
+@csrf_exempt
+@auth_required
+def extract_receipt(request):
+    """Extract transaction data from a receipt / screenshot image using Gemini Vision."""
+    if request.method != "POST":
+        return json_error("Method not allowed", 405)
+
+    # ── Check configuration ────────────────────────────────────────────
+    from django.conf import settings as django_settings
+
+    mock_mode = (
+        getattr(django_settings, "NVIDIA_RECEIPT_MOCK", False)
+        or getattr(django_settings, "GEMINI_RECEIPT_MOCK", False)
+    )
+    has_any_key = bool(getattr(django_settings, "NVIDIA_API_KEY", "")) or bool(
+        getattr(django_settings, "GEMINI_API_KEY", "")
+    )
+    if not mock_mode and not has_any_key:
+        return json_error(
+            "Receipt extraction not configured — set NVIDIA_API_KEY or GEMINI_API_KEY in .env",
+            503,
+        )
+
+    # ── Validate uploaded file ─────────────────────────────────────────
+    image_file = request.FILES.get("image")
+    if not image_file:
+        return json_error("No image file provided", 400)
+
+    if image_file.size > 5 * 1024 * 1024:
+        return json_error("Image must be less than 5 MB", 400)
+
+    mime_type = getattr(image_file, "content_type", "") or ""
+    if not mime_type.startswith("image/"):
+        return json_error("File must be an image", 400)
+
+    # ── Extract ────────────────────────────────────────────────────────
+    from apps.ledger.receipt_extractor import extract_from_receipt_image
+
+    image_bytes = image_file.read()
+    result = extract_from_receipt_image(image_bytes, mime_type)
+    return JsonResponse(result)

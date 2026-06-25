@@ -1,0 +1,3 @@
+Username: Admin
+Password: admin123
+**Change credentials in profile section after login**

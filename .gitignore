@@ -4,6 +4,7 @@ node_modules/
 *.log
 .env
 .env.local
+backend/.env
 .DS_Store
 dist/
 build/

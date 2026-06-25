@@ -20,4 +20,5 @@ urlpatterns = [
     path("trash", views.trash_list),
     path("trash/<str:item_id>/restore", views.trash_restore),
     path("trash/<str:item_id>", views.trash_delete),
+    path("extract-receipt", views.extract_receipt),
 ]

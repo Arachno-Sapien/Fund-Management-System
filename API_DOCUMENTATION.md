@@ -12,11 +12,12 @@
 2. [User Management Endpoints](#user-management-endpoints)
 3. [Database Endpoints](#database-endpoints)
 4. [Transaction Endpoints](#transaction-endpoints)
-5. [Recurring Transaction Endpoints](#recurring-transaction-endpoints)
-6. [Audit Log Endpoints](#audit-log-endpoints)
-7. [Trash Management Endpoints](#trash-management-endpoints)
-8. [Analytics Endpoints](#analytics-endpoints)
-9. [Data Types & Enums](#data-types--enums)
+5. [Receipt Extraction Endpoints](#receipt-extraction-endpoints)
+6. [Recurring Transaction Endpoints](#recurring-transaction-endpoints)
+7. [Audit Log Endpoints](#audit-log-endpoints)
+8. [Trash Management Endpoints](#trash-management-endpoints)
+9. [Analytics Endpoints](#analytics-endpoints)
+10. [Data Types & Enums](#data-types--enums)
 
 ---
 
@@ -777,6 +778,120 @@ Approves a pending transaction (only for transactions with `requires_approval: t
 
 ---
 
+## Receipt Extraction Endpoints
+
+### 1. Extract Receipt Details from Image
+
+**POST** `/transactions/extract-receipt/`
+
+Extracts transaction details from a receipt or transaction screenshot image using AI-powered recognition. Uses NVIDIA Nemotron 3 Nano Omni as primary provider with automatic fallback to Google Gemini 2.0 Flash.
+
+**Authentication:** Required
+
+**Request Body:**
+
+```text
+Content-Type: multipart/form-data
+
+file: <image file (PNG, JPEG, WEBP)>
+```
+
+**Response (200):**
+
+```json
+{
+  "amount": "float (transaction amount, null if not found)",
+  "date": "ISO 8601 datetime string (null if not found)",
+  "sender": "string (payer/sender name, null if not found)",
+  "receiver": "string (payee/receiver name, null if not found)",
+  "reference_id": "string (UPI ref, UTR, transaction ID, null if not found)",
+  "mode": "string (electronic, cheque, or cash, null if not found)",
+  "confidence": "float (0.0-1.0, extraction confidence score)",
+  "_provider": "string (nvidia or gemini - which model was used)",
+  "_mock": "boolean (true if mock mode is enabled)"
+}
+```
+
+**Request Example:**
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/transactions/extract-receipt/ \
+  -H "Authorization: Bearer <token>" \
+  -F "file=@receipt.jpg"
+```
+
+**Supported Image Formats:**
+
+- PNG (.png)
+- JPEG (.jpg, .jpeg)
+- WebP (.webp)
+
+**Image Processing:**
+
+- Automatic image compression (max 1024x1024 pixels)
+- JPEG quality: 75%
+- Payload reduction: ~95%
+
+**Extraction Fields:**
+
+- **amount**: Transaction amount (numeric value)
+- **date**: Transaction date/time in ISO 8601 format
+- **sender**: Name or account identifier of the payer
+- **receiver**: Name or account identifier of the payee
+- **reference_id**: Transaction reference (UPI ID, UTR, etc.)
+- **mode**: Payment method used
+- **confidence**: AI confidence score (0.0 = no confidence, 1.0 = certain)
+
+**Provider Information:**
+
+- **Primary**: NVIDIA Nemotron 3 Nano Omni (`nvidia`)
+- **Fallback**: Google Gemini 2.0 Flash (`gemini`)
+- If primary provider fails, automatically retries with fallback
+- Response includes `_provider` field indicating which model was used
+
+**Mock Mode:**
+
+For development and testing without API calls, enable mock mode in `.env`:
+
+```env
+NVIDIA_RECEIPT_MOCK=true
+GEMINI_RECEIPT_MOCK=true
+```
+
+This returns a sample response without consuming API quota.
+
+**Error Responses:**
+
+- `400`: No image file provided / Invalid image format / Image processing failed
+- `401`: Unauthorized (missing/invalid token)
+- `405`: Method not allowed
+- `500`: Both AI providers failed (check error details)
+
+**Error Response Example:**
+
+```json
+{
+  "error": "Image processing failed: Invalid file format"
+}
+```
+
+Or if both providers fail:
+
+```json
+{
+  "error": "Both providers failed: NVIDIA: API quota exceeded | Gemini: Network error"
+}
+```
+
+**Typical Use Cases:**
+
+1. Automatic transaction entry from receipt photos
+2. Bulk import of historical transactions via receipt images
+3. Quick transaction logging from payment screenshots
+4. Audit trail with image-based verification
+
+---
+
 ## Recurring Transaction Endpoints
 
 ### 1. List Recurring Transactions
@@ -1086,6 +1201,21 @@ Retrieves summary analytics for all user's databases.
 - `cheque` - Cheque payment (requires `chequeNo`, `chequeDate`, `chequeBank`)
 - `cash` - Cash transaction
 
+### AI Receipt Extraction Providers
+
+- `nvidia` - NVIDIA Nemotron 3 Nano Omni (primary provider, fast & efficient)
+- `gemini` - Google Gemini 2.0 Flash (fallback provider, high accuracy)
+- `mock` - Mock provider (development/testing, no API calls)
+
+### Extraction Confidence Scores
+
+Confidence scores range from 0.0 to 1.0:
+
+- `0.9-1.0` - High confidence (reliable extraction)
+- `0.7-0.9` - Medium confidence (usually accurate)
+- `0.5-0.7` - Low confidence (review recommended)
+- `0.0-0.5` - Very low confidence (manual verification needed)
+
 ### Recurring Frequencies
 
 - `daily` - Every day
@@ -1157,6 +1287,7 @@ Currently, there is no rate limiting implemented. Production deployment should c
 
 ## Version History
 
+- **v2.0** - Added AI Receipt Extraction endpoint with dual provider support (NVIDIA + Gemini)
 - **v1.0** - Initial API documentation
 
 ---
@@ -1168,4 +1299,7 @@ Currently, there is no rate limiting implemented. Production deployment should c
 - All entity IDs are unique strings (64 characters max)
 - Audit logs are maintained for all user actions for compliance
 - Deleted databases and transactions are soft-deleted by default (moved to trash)
-- Running balances are recalculated automatically when transactions are voided or edited
+- Receipt extraction uses dual AI providers (NVIDIA Nemotron primary, Gemini fallback)
+- Receipt extraction automatically compresses images (~95% payload reduction)
+- All receipt extraction confidence scores are 0.0-1.0 floats
+- Mock mode for receipt extraction is configurable via environment variables for testing

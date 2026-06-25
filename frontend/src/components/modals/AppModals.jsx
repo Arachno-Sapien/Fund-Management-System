@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
 import { fmt, formatDate, formatDateShort, nowInput } from "lib/format";
+import { extractReceipt } from "lib/api";
 
 function Modal({ open, id, title, children, onClose, large = false }) {
   return (
@@ -27,6 +29,60 @@ export default function AppModals({
 }) {
   const close = key => setModals(prev => ({ ...prev, [key]: false }));
   const isFirstTransaction = (state.transactions || []).filter(txn => !txn.is_voided).length === 0;
+
+  // ── AI Receipt extraction local state ─────────────────────────────
+  const [extracting, setExtracting] = useState(false);
+  const [rawFile, setRawFile] = useState(null);
+  const [extractConfidence, setExtractConfidence] = useState(null);
+
+  const confidenceBadge = (fieldHasValue) => {
+    if (extractConfidence === null || !fieldHasValue) return null;
+    if (extractConfidence >= 0.85) {
+      return <span style={{ color: "#22c55e", fontSize: ".75rem", marginLeft: 6, fontWeight: 600 }} title={`Confidence: ${(extractConfidence * 100).toFixed(0)}%`}>✓</span>;
+    }
+    return <span style={{ color: "#eab308", fontSize: ".75rem", marginLeft: 6, fontWeight: 600 }} title={`Confidence: ${(extractConfidence * 100).toFixed(0)}%`}>⚠</span>;
+  };
+
+  const handleExtractReceipt = async () => {
+    if (!rawFile || !state.currentUser?.token) return;
+    setExtracting(true);
+    try {
+      const data = await extractReceipt(rawFile, state.currentUser.token);
+      if (data.error) {
+        actions.toast(data.error, "error");
+        setExtracting(false);
+        return;
+      }
+      setExtractConfidence(data.confidence ?? null);
+      const updates = {};
+      if (data.amount != null) updates.amount = String(data.amount);
+      if (data.date) {
+        // Convert ISO8601 to datetime-local format (YYYY-MM-DDTHH:mm)
+        const dt = data.date.replace("Z", "");
+        updates.date = dt.length > 16 ? dt.slice(0, 16) : dt;
+      }
+      if (data.sender) updates.sender = data.sender;
+      if (data.receiver) updates.receiver = data.receiver;
+      if (data.mode && ["electronic", "cheque", "cash"].includes(data.mode)) {
+        updates.mode = data.mode;
+        if (data.mode === "electronic") {
+          updates.modeData = { elecId: data.reference_id || "" };
+        } else if (data.mode === "cheque") {
+          updates.modeData = { chequeNo: "", chequeDate: "", chequeBank: "" };
+        } else {
+          updates.modeData = {};
+        }
+      } else if (data.reference_id && state.txnForm.mode === "electronic") {
+        updates.modeData = { ...state.txnForm.modeData, elecId: data.reference_id };
+      }
+      actions.setTxnForm(prev => ({ ...prev, ...updates }));
+      actions.toast("Receipt data extracted successfully", "success");
+    } catch (err) {
+      actions.toast(err.message, "error");
+    } finally {
+      setExtracting(false);
+    }
+  };
 
   const exportCSV = () => {
     if (!state.currentDb) return;
@@ -260,22 +316,22 @@ export default function AppModals({
 
         <div className="form-row">
           <div className="form-group">
-            <label>Amount (₹)</label>
+            <label>Amount (₹){confidenceBadge(state.txnForm.amount)}</label>
             <input type="number" value={state.txnForm.amount} onChange={e => actions.setTxnForm(prev => ({ ...prev, amount: e.target.value }))} min="0.01" step="0.01" />
           </div>
           <div className="form-group">
-            <label>Date of Transaction</label>
+            <label>Date of Transaction{confidenceBadge(state.txnForm.date)}</label>
             <input type="datetime-local" value={state.txnForm.date} onChange={e => actions.setTxnForm(prev => ({ ...prev, date: e.target.value }))} />
           </div>
         </div>
 
         <div className="form-row">
           <div className="form-group">
-            <label>Sender Info</label>
+            <label>Sender Info{confidenceBadge(state.txnForm.sender)}</label>
             <input value={state.txnForm.sender} onChange={e => actions.setTxnForm(prev => ({ ...prev, sender: e.target.value }))} />
           </div>
           <div className="form-group">
-            <label>Receiver Info</label>
+            <label>Receiver Info{confidenceBadge(state.txnForm.receiver)}</label>
             <input value={state.txnForm.receiver} onChange={e => actions.setTxnForm(prev => ({ ...prev, receiver: e.target.value }))} />
           </div>
         </div>
@@ -356,13 +412,33 @@ export default function AppModals({
                 actions.toast("Image must be less than 5MB", "error");
                 return;
               }
+              setRawFile(file);
+              setExtractConfidence(null);
               const reader = new FileReader();
               reader.onload = e => actions.setTxnForm(prev => ({ ...prev, receiptImage: e.target.result }));
               reader.readAsDataURL(file);
             }}
           />
-          {state.txnForm.receiptImage && <img src={state.txnForm.receiptImage} alt="Receipt preview" style={{ maxWidth: 160, borderRadius: 8, marginTop: 8 }} />}
+          {state.txnForm.receiptImage && (
+            <div style={{ marginTop: 8, display: "flex", alignItems: "flex-start", gap: 12 }}>
+              <img src={state.txnForm.receiptImage} alt="Receipt preview" style={{ maxWidth: 160, borderRadius: 8 }} />
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                disabled={extracting || !rawFile}
+                onClick={handleExtractReceipt}
+                style={{ whiteSpace: "nowrap", marginTop: 4 }}
+              >
+                {extracting ? (
+                  <><span className="spinner" style={{ width: 14, height: 14, border: "2px solid var(--muted)", borderTopColor: "var(--accent)", borderRadius: "50%", display: "inline-block", animation: "spin .6s linear infinite", marginRight: 6, verticalAlign: "middle" }} /> Extracting...</>
+                ) : (
+                  "✨ Extract Data"
+                )}
+              </button>
+            </div>
+          )}
         </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         <div className="form-actions">
           <button className="btn btn-ghost" onClick={() => close("txn")}>
             Cancel
