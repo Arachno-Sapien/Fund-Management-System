@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -34,6 +34,65 @@ export default function AppModals({
   const [extracting, setExtracting] = useState(false);
   const [rawFile, setRawFile] = useState(null);
   const [extractConfidence, setExtractConfidence] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [imageUrl, setImageUrl] = useState("");
+  const fileInputRef = useRef(null);
+
+  const processImageFile = useCallback((file) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      actions.toast("Please select an image file", "error");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      actions.toast("Image must be less than 5MB", "error");
+      return;
+    }
+    setRawFile(file);
+    setExtractConfidence(null);
+    const reader = new FileReader();
+    reader.onload = e => actions.setTxnForm(prev => ({ ...prev, receiptImage: e.target.result }));
+    reader.readAsDataURL(file);
+  }, [actions]);
+
+  const handlePaste = useCallback((e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) processImageFile(file);
+        return;
+      }
+    }
+  }, [processImageFile]);
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) processImageFile(file);
+  }, [processImageFile]);
+
+  const handleImageUrl = useCallback(async () => {
+    const url = imageUrl.trim();
+    if (!url) return;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Failed to fetch image");
+      const blob = await res.blob();
+      if (!blob.type.startsWith("image/")) {
+        actions.toast("URL does not point to an image", "error");
+        return;
+      }
+      const file = new File([blob], "pasted-image." + (blob.type.split("/")[1] || "png"), { type: blob.type });
+      processImageFile(file);
+      setImageUrl("");
+    } catch {
+      actions.toast("Could not load image from URL", "error");
+    }
+  }, [imageUrl, actions, processImageFile]);
 
   const confidenceBadge = (fieldHasValue) => {
     if (extractConfidence === null || !fieldHasValue) return null;
@@ -398,30 +457,91 @@ export default function AppModals({
         </div>
         <div className="form-group">
           <label>Attach Receipt (optional)</label>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={event => {
-              const file = event.target.files?.[0];
-              if (!file) return;
-              if (!file.type.startsWith("image/")) {
-                actions.toast("Please select an image file", "error");
-                return;
-              }
-              if (file.size > 5 * 1024 * 1024) {
-                actions.toast("Image must be less than 5MB", "error");
-                return;
-              }
-              setRawFile(file);
-              setExtractConfidence(null);
-              const reader = new FileReader();
-              reader.onload = e => actions.setTxnForm(prev => ({ ...prev, receiptImage: e.target.result }));
-              reader.readAsDataURL(file);
-            }}
-          />
+          <div style={{ display: "flex", gap: 10, alignItems: "stretch", marginBottom: 8 }}>
+            {/* File chooser */}
+            <div style={{ flex: "0 0 auto" }}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={e => processImageFile(e.target.files?.[0])}
+              />
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => fileInputRef.current?.click()}
+                style={{ height: "100%", whiteSpace: "nowrap" }}
+              >
+                📁 Choose File
+              </button>
+            </div>
+
+            {/* Paste URL input */}
+            <div style={{ flex: 1, display: "flex", gap: 6 }}>
+              <input
+                type="text"
+                value={imageUrl}
+                onChange={e => setImageUrl(e.target.value)}
+                onPaste={handlePaste}
+                onKeyDown={e => { if (e.key === "Enter" && imageUrl.trim()) { e.preventDefault(); handleImageUrl(); } }}
+                placeholder="Paste an image or image URL here..."
+                style={{ flex: 1, fontSize: ".85rem" }}
+              />
+              {imageUrl.trim() && (
+                <button type="button" className="btn btn-outline btn-sm" onClick={handleImageUrl} style={{ whiteSpace: "nowrap" }}>
+                  Load
+                </button>
+              )}
+            </div>
+
+            {/* Drop zone */}
+            <div
+              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              style={{
+                flex: "0 0 auto",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "8px 16px",
+                border: `2px dashed ${dragOver ? "var(--accent)" : "var(--border)"}`,
+                borderRadius: 8,
+                color: dragOver ? "var(--accent)" : "var(--muted)",
+                fontSize: ".8rem",
+                cursor: "pointer",
+                transition: "all .2s",
+                background: dragOver ? "rgba(var(--accent-rgb, 99,102,241), 0.08)" : "transparent",
+                minWidth: 120,
+              }}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <span style={{ fontSize: "1.2rem", marginBottom: 2 }}>↓</span>
+              <span>Drop an image here...</span>
+            </div>
+          </div>
+
+          {/* File name display */}
+          {rawFile && !state.txnForm.receiptImage && (
+            <div style={{ fontSize: ".82rem", color: "var(--muted)", marginBottom: 6 }}>{rawFile.name}</div>
+          )}
+
+          {/* Preview + Extract button */}
           {state.txnForm.receiptImage && (
-            <div style={{ marginTop: 8, display: "flex", alignItems: "flex-start", gap: 12 }}>
-              <img src={state.txnForm.receiptImage} alt="Receipt preview" style={{ maxWidth: 160, borderRadius: 8 }} />
+            <div style={{ marginTop: 4, display: "flex", alignItems: "flex-start", gap: 12 }}>
+              <div style={{ position: "relative" }}>
+                <img src={state.txnForm.receiptImage} alt="Receipt preview" style={{ maxWidth: 160, borderRadius: 8 }} />
+                <button
+                  type="button"
+                  onClick={() => { actions.setTxnForm(prev => ({ ...prev, receiptImage: "" })); setRawFile(null); setExtractConfidence(null); }}
+                  style={{ position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", borderRadius: "50%", width: 22, height: 22, cursor: "pointer", fontSize: ".7rem", display: "flex", alignItems: "center", justifyContent: "center" }}
+                  title="Remove image"
+                >
+                  ✕
+                </button>
+              </div>
               <button
                 type="button"
                 className="btn btn-outline btn-sm"

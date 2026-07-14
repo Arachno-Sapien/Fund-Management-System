@@ -23,19 +23,6 @@ export default function HomeView({
         <p>Create named fund databases, record detailed transactions, and track live balances.</p>
       </div>
 
-      {recent.length > 0 && (
-        <div className="activity-feed" style={{ padding: 20, marginBottom: 32 }}>
-          <div className="section-label" style={{ marginBottom: 10 }}>
-            ⚡ Recent Activity
-          </div>
-          {recent.map(item => (
-            <div key={item.id} className="activity-row">
-              <div>{item.details}</div>
-              <div className="activity-row-time">{relativeTime(item.timestamp)}</div>
-            </div>
-          ))}
-        </div>
-      )}
 
       <div className="section-header">
         <div className="section-label">Your Databases</div>
