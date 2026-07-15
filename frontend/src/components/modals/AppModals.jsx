@@ -30,7 +30,7 @@ export default function AppModals({
   const close = key => setModals(prev => ({ ...prev, [key]: false }));
   const isFirstTransaction = (state.transactions || []).filter(txn => !txn.is_voided).length === 0;
 
-  // ── AI Receipt extraction local state ─────────────────────────────
+  // ── AI Receipt extraction local state ───
   const [extracting, setExtracting] = useState(false);
   const [rawFile, setRawFile] = useState(null);
   const [extractConfidence, setExtractConfidence] = useState(null);

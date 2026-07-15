@@ -20,7 +20,7 @@ export default function HomeView({
           <br />
           <em>fund databases</em> with precision
         </h1>
-        <p>Create named fund databases, record detailed transactions, and track live balances.</p>
+        <p>Create named fund databases, record detailed transactions, & track live balances.</p>
       </div>
 
 
