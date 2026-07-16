@@ -546,6 +546,17 @@ export default function FundVaultApp() {
     }
   };
 
+  const deleteVoidedTransaction = async txnId => {
+    if (!confirm("Permanently delete this voided transaction? This cannot be undone.")) return;
+    try {
+      await authedRequest(`/transactions/${txnId}/delete`, { method: "DELETE" });
+      toast("Voided transaction deleted", "info");
+      await Promise.all([loadCurrentDb(currentDbId), hydrateDatabases(), refreshAudit(), refreshOverview()]);
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  };
+
   const addRecurring = async () => {
     if (!currentDbId) return;
     if (!recurringForm.type) {
@@ -1022,6 +1033,7 @@ export default function FundVaultApp() {
           onOpenEditTxn={openEditTransactionModal}
           onOpenVoidTxn={openVoidModal}
           onApproveTxn={approveTransaction}
+          onDeleteVoidedTxn={deleteVoidedTransaction}
           onViewReceipt={txn => {
             setSelectedReceipt(txn.receipt_image);
             setModals(prev => ({ ...prev, receipt: true }));

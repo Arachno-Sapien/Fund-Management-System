@@ -31,6 +31,7 @@ export default function DatabaseView({
   onOpenEditTxn,
   onOpenVoidTxn,
   onApproveTxn,
+  onDeleteVoidedTxn,
   onViewReceipt
 }) {
   const [sortColumn, setSortColumn] = useState(null);
@@ -276,6 +277,11 @@ export default function DatabaseView({
                           ⊘
                         </button>
                       </>
+                    )}
+                    {txn.is_voided && (
+                      <button className="btn btn-danger btn-sm" onClick={() => onDeleteVoidedTxn(txn.id)} title="Delete voided transaction">
+                        🗑
+                      </button>
                     )}
                     {txn.requires_approval && !txn.approved && !txn.is_voided && (
                       <button className="btn btn-outline btn-sm" onClick={() => onApproveTxn(txn.id)}>

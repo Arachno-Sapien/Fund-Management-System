@@ -315,6 +315,34 @@ def transaction_void(request, transaction_id):
 
 @csrf_exempt
 @auth_required
+def transaction_delete_voided(request, transaction_id):
+    """Permanently delete a voided transaction from the ledger."""
+    if request.method != "DELETE":
+        return json_error("Method not allowed", 405)
+
+    txn = (
+        TransactionFund.objects.select_related("database")
+        .filter(id=transaction_id, database__user_id=request.fv_user.id, database__is_deleted=False)
+        .first()
+    )
+    if not txn:
+        return json_error("Transaction not found", 404)
+    if not txn.is_voided:
+        return json_error("Only voided transactions can be deleted", 400)
+
+    db_id = txn.database_id
+    txn_desc = f"#{txn.id} {txn.type} {txn.amount}"
+
+    with transaction.atomic():
+        txn.delete()
+        recalculate_running_balances(db_id)
+
+    add_audit(request.fv_user.id, "delete", "transaction", transaction_id, f"Voided transaction deleted: {txn_desc}")
+    return JsonResponse({"success": True})
+
+
+@csrf_exempt
+@auth_required
 def transaction_approve(request, transaction_id):
     if request.method != "POST":
         return json_error("Method not allowed", 405)
